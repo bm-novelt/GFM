@@ -133,3 +133,5 @@ dataset/
 visual/
 .vscode/
 wandb/
+
+data/GeoPileV0/
