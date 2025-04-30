@@ -84,6 +84,10 @@ _C.MODEL.VIT.USE_RPB = False
 _C.MODEL.VIT.USE_SHARED_RPB = True
 _C.MODEL.VIT.USE_MEAN_POOLING = False
 
+# EfficientNet-V2M
+_C.MODEL.EFFNET = CN()
+_C.MODEL.EFFNET.PATCH_SIZE = 4
+
 # -----------------------------------------------------------------------------
 # Training settings
 # -----------------------------------------------------------------------------

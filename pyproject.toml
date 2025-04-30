@@ -16,5 +16,6 @@ dependencies = [
     "torch>=2.7.0",
     "torchgeo>=0.7.0",
     "torchmetrics>=1.7.1",
+    "torchsummary>=1.5.1",
     "yacs>=0.1.8",
 ]

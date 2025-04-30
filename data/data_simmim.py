@@ -68,6 +68,8 @@ class SimMIMTransform:
             model_patch_size=config.MODEL.SWIN.PATCH_SIZE
         elif config.MODEL.TYPE == 'vit':
             model_patch_size=config.MODEL.VIT.PATCH_SIZE
+        elif config.MODEL.TYPE == 'efficientnetv2m':
+            model_patch_size = config.MODEL.EFFNET.PATCH_SIZE
         else:
             raise NotImplementedError
         

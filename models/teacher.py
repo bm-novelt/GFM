@@ -10,10 +10,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from timm.models.layers import trunc_normal_
+from timm import create_model
+from timm.models.efficientnet import EfficientNet
 
 from .swin_transformer import SwinTransformer
 from .vision_transformer import VisionTransformer
-
+from models.swin_transformer import PatchEmbed
 from scipy import interpolate
 import numpy as np
 
@@ -98,7 +100,56 @@ class VisionTransformerForSimMIM(VisionTransformer):
         x = x.permute(0, 2, 1).reshape(B, C, H, W)
         return x
 
+class EfficientNetForSimMIM(nn.Module):
+    def __init__(self, model_name='tf_efficientnetv2_m',embed_dim = 24, 
+                 in_chans = 3, patch_size = 4,  **kwargs):
+        super().__init__(**kwargs)
+        base_model = create_model(model_name, pretrained=False)
+        self.__dict__.update(base_model.__dict__)
+        self.embed_dim = embed_dim
+        self.num_features = 512
+        self.in_chans = in_chans
+        self.patch_size = patch_size
+        
+        # Define a learnable mask token
+        self.mask_token = nn.Parameter(torch.zeros(1, self.embed_dim , 1, 1))
+        nn.init.normal_(self.mask_token, std=0.02)
 
+        self.classifier = None
+
+    def forward(self, x, mask):
+        # Stem
+        x = self.conv_stem(x)
+        x = self.bn1(x)
+      
+        # Apply mask
+        assert mask is not None, "Mask must be provided for SimMIM"
+        B, _, H, W = x.shape
+        mask_resized = F.interpolate(mask.unsqueeze(1).float(), size=(H, W), mode='nearest')
+        mask_tokens = self.mask_token.expand(B, -1, H, W)
+        w = mask_resized.type_as(mask_tokens)
+        x = x * (1. - w) + mask_tokens * w
+        
+        # Apply all blocks
+        x = self.blocks(x)
+
+        # Last block
+        r = self.conv_head(x)
+        r = self.bn2(r)
+
+        # Global average pool and flatten
+        x = self.global_pool(x)
+        x = torch.flatten(x, 1)
+        return r, x
+    
+    @torch.jit.ignore
+    def no_weight_decay(self):
+        return {'mask_token'}
+    
+    @torch.jit.ignore
+    def no_weight_decay_keywords(self):
+        return {'relative_position_bias_table'}
+    
 class SimMIM(nn.Module):
     def __init__(self, encoder, encoder_stride, teacher):
         super().__init__()
@@ -111,7 +162,7 @@ class SimMIM(nn.Module):
 
         self.decoder = nn.Sequential(
             nn.Conv2d(
-                in_channels=self.encoder.num_features,
+                in_channels=1280,
                 out_channels=self.encoder_stride ** 2 * self.in_chans, kernel_size=1),
             nn.PixelShuffle(self.encoder_stride),
         )
@@ -123,14 +174,15 @@ class SimMIM(nn.Module):
     def forward(self, x, mask):
         r, zs = self.encoder(x, mask)
         zs = self.projector(zs)
-        zt = self.teacher(F.interpolate(x, (224, 224), mode='bilinear', align_corners=True))
+        zt = self.teacher.forward_features(F.interpolate(x, (224, 224), mode='bilinear', align_corners=True))
         x_rec = self.decoder(r)
-
+        
         mask = mask.repeat_interleave(self.patch_size, 1).repeat_interleave(self.patch_size, 2).unsqueeze(1).contiguous()
         loss_recon = F.l1_loss(x, x_rec, reduction='none')
         loss = (loss_recon * mask).sum() / (mask.sum() + 1e-5) / self.in_chans
 
         loss += -(self.cos(zs, zt.detach()).mean())*self.teacher.alpha
+        
         return loss
 
     @torch.jit.ignore
@@ -167,6 +219,26 @@ def build_simmim(config, logger):
             patch_norm=config.MODEL.SWIN.PATCH_NORM,
             use_checkpoint=config.TRAIN.USE_CHECKPOINT)
         encoder_stride = 32
+
+        teacher = SwinTeacher(
+            img_size=224,
+            patch_size=config.MODEL.SWIN.PATCH_SIZE,
+            in_chans=config.MODEL.SWIN.IN_CHANS,
+            num_classes=config.MODEL.NUM_CLASSES,
+            embed_dim=config.MODEL.SWIN.EMBED_DIM,
+            depths=config.MODEL.SWIN.DEPTHS,
+            num_heads=config.MODEL.SWIN.NUM_HEADS,
+            window_size=7,
+            mlp_ratio=config.MODEL.SWIN.MLP_RATIO,
+            qkv_bias=config.MODEL.SWIN.QKV_BIAS,
+            qk_scale=config.MODEL.SWIN.QK_SCALE,
+            drop_rate=config.MODEL.DROP_RATE,
+            drop_path_rate=config.MODEL.DROP_PATH_RATE,
+            ape=config.MODEL.SWIN.APE,
+            patch_norm=config.MODEL.SWIN.PATCH_NORM,
+            use_checkpoint=config.TRAIN.USE_CHECKPOINT,
+            alpha=config.ALPHA)
+        load_pretrained(config, teacher, logger)
     elif model_type == 'vit':
         encoder = VisionTransformerForSimMIM(
             img_size=config.DATA.IMG_SIZE,
@@ -187,27 +259,17 @@ def build_simmim(config, logger):
             use_shared_rel_pos_bias=config.MODEL.VIT.USE_SHARED_RPB,
             use_mean_pooling=config.MODEL.VIT.USE_MEAN_POOLING)
         encoder_stride = 16
+        load_pretrained(config, teacher, logger)
+
+    elif model_type == 'efficientnetv2m':
+
+        encoder = EfficientNetForSimMIM()
+        teacher = EfficientTeacher(alpha = config.ALPHA)
+        encoder_stride = 32
+
     else:
         raise NotImplementedError(f"Unknown pre-train model: {model_type}")
-    teacher = SwinTeacher(
-        img_size=224,
-        patch_size=config.MODEL.SWIN.PATCH_SIZE,
-        in_chans=config.MODEL.SWIN.IN_CHANS,
-        num_classes=config.MODEL.NUM_CLASSES,
-        embed_dim=config.MODEL.SWIN.EMBED_DIM,
-        depths=config.MODEL.SWIN.DEPTHS,
-        num_heads=config.MODEL.SWIN.NUM_HEADS,
-        window_size=7,
-        mlp_ratio=config.MODEL.SWIN.MLP_RATIO,
-        qkv_bias=config.MODEL.SWIN.QKV_BIAS,
-        qk_scale=config.MODEL.SWIN.QK_SCALE,
-        drop_rate=config.MODEL.DROP_RATE,
-        drop_path_rate=config.MODEL.DROP_PATH_RATE,
-        ape=config.MODEL.SWIN.APE,
-        patch_norm=config.MODEL.SWIN.PATCH_NORM,
-        use_checkpoint=config.TRAIN.USE_CHECKPOINT,
-        alpha=config.ALPHA)
-    load_pretrained(config, teacher, logger)
+
     model = SimMIM(encoder=encoder, encoder_stride=encoder_stride, teacher=teacher)
 
     return model
@@ -235,6 +297,37 @@ class SwinTeacher(SwinTransformer):
     def forward(self, x):
         x = self.forward_features(x)
         return x
+
+
+class EfficientTeacher(nn.Module):
+    def __init__(self, alpha, model_name = "tf_efficientnetv2_m.in21k", **kwargs):
+        super().__init__(**kwargs)
+
+        base_model = create_model(model_name, pretrained=True)
+        for param in base_model.parameters():
+            param.requires_grad = False
+        self.__dict__.update(base_model.__dict__)
+        
+        self.classifier = None
+        self.alpha = alpha
+
+    def forward_features(self, x):
+        # Implementation based on timm code.
+        x = self.conv_stem(x)
+        x = self.bn1(x)
+        x = self.blocks(x)
+        #x = self.conv_head(x)
+        #x = self.bn2(x)
+        x = self.global_pool(x)
+        #x = torch.flatten(x, 1)
+        return x
+    
+
+    def forward(self, x):
+        x = self.forward_features(x)
+        # Dont use head.
+        return x
+    
 
 def load_pretrained(config, model, logger):
     logger.info(f">>>>>>>>>> Fine-tuned from {config.PRETRAINED} ..........")

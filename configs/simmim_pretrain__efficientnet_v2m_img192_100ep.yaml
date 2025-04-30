@@ -1,0 +1,19 @@
+MODEL:
+  TYPE: efficientnetv2m
+  NAME: simmim_pretrain
+  EFFNET:
+    PATCH_SIZE: 4
+DATA:
+  IMG_SIZE: 192
+  MASK_PATCH_SIZE: 32
+  MASK_RATIO: 0.6
+TRAIN:
+  EPOCHS: 1
+  WARMUP_EPOCHS: 0
+  BASE_LR: 2e-4
+  WARMUP_LR: 1e-6
+  MIN_LR: 1e-5
+  WEIGHT_DECAY: 0.05
+PRINT_FREQ: 1
+SAVE_FREQ: 5
+TAG: simmim_pretrain__efficientnet_v2m__img192__100ep
