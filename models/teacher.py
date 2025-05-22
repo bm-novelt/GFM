@@ -20,11 +20,11 @@ from scipy import interpolate
 import numpy as np
 
 class SwinTransformerForSimMIM(SwinTransformer):
-    def __init__(self, **kwargs):
+    def __init__(self, decoder_in_dim = 96, **kwargs):
         super().__init__(**kwargs)
 
         assert self.num_classes == 0
-
+        self.decoder_in_dim = decoder_in_dim
         self.mask_token = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
         trunc_normal_(self.mask_token, mean=0., std=.02)
 
@@ -61,11 +61,11 @@ class SwinTransformerForSimMIM(SwinTransformer):
 
 
 class VisionTransformerForSimMIM(VisionTransformer):
-    def __init__(self, **kwargs):
+    def __init__(self, decoder_in_dim = 768, **kwargs):
         super().__init__(**kwargs)
 
         assert self.num_classes == 0
-
+        self.decoder_in_dim = decoder_in_dim
         self.mask_token = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
         self._trunc_normal_(self.mask_token, std=.02)
 
@@ -101,15 +101,18 @@ class VisionTransformerForSimMIM(VisionTransformer):
         return x
 
 class EfficientNetForSimMIM(nn.Module):
-    def __init__(self, model_name='tf_efficientnetv2_m',embed_dim = 24, 
-                 in_chans = 3, patch_size = 4,  **kwargs):
+    def __init__(self, model_name='tf_efficientnetv2_m', img_size = 256, embed_dim = 24, 
+                 decoder_in_dim = 1280, num_features = 512, in_chans = 3, patch_size = 4,  **kwargs):
         super().__init__(**kwargs)
         base_model = create_model(model_name, pretrained=False)
         self.__dict__.update(base_model.__dict__)
+
+        self.img_size = img_size
         self.embed_dim = embed_dim
-        self.num_features = 512
+        self.num_features = num_features
         self.in_chans = in_chans
         self.patch_size = patch_size
+        self.decoder_in_dim = decoder_in_dim
         
         # Define a learnable mask token
         self.mask_token = nn.Parameter(torch.zeros(1, self.embed_dim , 1, 1))
@@ -162,7 +165,7 @@ class SimMIM(nn.Module):
 
         self.decoder = nn.Sequential(
             nn.Conv2d(
-                in_channels=1280,
+                in_channels=self.encoder.decoder_in_dim,
                 out_channels=self.encoder_stride ** 2 * self.in_chans, kernel_size=1),
             nn.PixelShuffle(self.encoder_stride),
         )
@@ -217,7 +220,9 @@ def build_simmim(config, logger):
             drop_path_rate=config.MODEL.DROP_PATH_RATE,
             ape=config.MODEL.SWIN.APE,
             patch_norm=config.MODEL.SWIN.PATCH_NORM,
-            use_checkpoint=config.TRAIN.USE_CHECKPOINT)
+            use_checkpoint=config.TRAIN.USE_CHECKPOINT,
+            
+            decoder_in_dim = config.MODEL.SWIN.DECODER_IN_DIM)
         encoder_stride = 32
 
         teacher = SwinTeacher(
@@ -257,13 +262,22 @@ def build_simmim(config, logger):
             use_abs_pos_emb=config.MODEL.VIT.USE_APE,
             use_rel_pos_bias=config.MODEL.VIT.USE_RPB,
             use_shared_rel_pos_bias=config.MODEL.VIT.USE_SHARED_RPB,
-            use_mean_pooling=config.MODEL.VIT.USE_MEAN_POOLING)
+            use_mean_pooling=config.MODEL.VIT.USE_MEAN_POOLING,
+            decoder_in_dim= config.MODEL.VIT.DECODER_IN_DIM
+            )
         encoder_stride = 16
         load_pretrained(config, teacher, logger)
 
     elif model_type == 'efficientnetv2m':
 
-        encoder = EfficientNetForSimMIM()
+        encoder = EfficientNetForSimMIM(
+            img_size = config.DATA.IMG_SIZE,
+            embed_dim = config.MODEL.EFFNET.EMBED_DIM,
+            in_chans = config.MODEL.EFFNET.IN_CHANS,
+            patch_size = config.MODEL.EFFNET.PATCH_SIZE,
+            num_features= config.MODEL.EFFNET.NUM_FEATURES,
+            decoder_in_dim= config.MODEL.EFFNET.DECODER_IN_DIM
+        )
         teacher = EfficientTeacher(alpha = config.ALPHA)
         encoder_stride = 32
 

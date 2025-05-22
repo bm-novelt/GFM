@@ -68,6 +68,8 @@ _C.MODEL.SWIN.QKV_BIAS = True
 _C.MODEL.SWIN.QK_SCALE = None
 _C.MODEL.SWIN.APE = False
 _C.MODEL.SWIN.PATCH_NORM = True
+_C.MODEL.SWIN.DECODER_IN_DIM = 96
+
 
 # Vision Transformer parameters
 _C.MODEL.VIT = CN()
@@ -83,11 +85,16 @@ _C.MODEL.VIT.USE_APE = False
 _C.MODEL.VIT.USE_RPB = False
 _C.MODEL.VIT.USE_SHARED_RPB = True
 _C.MODEL.VIT.USE_MEAN_POOLING = False
+_C.MODEL.VIT.DECODER_IN_DIM = 768
 
 # EfficientNet-V2M
 _C.MODEL.EFFNET = CN()
+_C.MODEL.EFFNET.IMG_SIZE = 256
+_C.MODEL.EFFNET.EMBED_DIM = 24
+_C.MODEL.EFFNET.IN_CHANS = 3
 _C.MODEL.EFFNET.PATCH_SIZE = 4
-
+_C.MODEL.EFFNET.DECODER_IN_DIM = 1280
+_C.MODEL.EFFNET.NUM_FEATURES = 512
 # -----------------------------------------------------------------------------
 # Training settings
 # -----------------------------------------------------------------------------
