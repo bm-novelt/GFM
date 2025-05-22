@@ -1,0 +1,21 @@
+[project]
+name = "gfm"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "opencv-python>=4.11.0.86",
+    "packaging>= 17.1",
+    "pip>=25.0.1",
+    "pyyaml>=6.0.2",
+    "rasterio>=1.4.3",
+    "scipy>=1.15.2",
+    "termcolor>=3.0.1",
+    "timm>=1.0.15",
+    "torch>=2.7.0",
+    "torchgeo>=0.7.0",
+    "torchmetrics>=1.7.1",
+    "torchsummary>=1.5.1",
+    "yacs>=0.1.8",
+]

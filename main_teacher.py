@@ -56,10 +56,8 @@ def parse_option():
     parser.add_argument('--alpha', type=float, default=1.0, help="Alpha for similarity loss")
 
     # distributed training
-    parser.add_argument("--local_rank", type=int, required=True, help='local rank for DistributedDataParallel')
-
+    parser.add_argument("--local_rank", type=int, default = 0, help='local rank for DistributedDataParallel')
     args = parser.parse_args()
-
     config = get_config(args)
 
     return args, config
@@ -144,6 +142,7 @@ def train_one_epoch(config, model, data_loader, optimizer, epoch, lr_scheduler):
                     grad_norm = get_grad_norm(amp.master_params(optimizer))
             else:
                 loss.backward()
+
                 if config.TRAIN.CLIP_GRAD:
                     grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.TRAIN.CLIP_GRAD)
                 else:
